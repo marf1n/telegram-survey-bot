@@ -10,78 +10,102 @@ from datetime import datetime
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-NAME, BIRTH_YEAR, DEVICE_USAGE, PHONE = range(4)
+# States
+FULL_NAME, BIRTH_DATE, PROTOCOL_DATE, COURT_HEARING, PHONE = range(5)
 RESULTS_FILE = 'survey_results.json'
+
+# ВАЖНО: Замените на ID вашей группы/канала
+# Чтобы получить ID: добавьте бота в группу, напишите что-то, бот залогирует chat_id
+ADMIN_GROUP_ID = -1003266963357
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start the survey"""
     await update.message.reply_text(
-        "Добро пожаловать в опрос!\n\n"
-        "Вопрос 1/4: Как вас зовут? (Имя Фамилия)"
+        "👋 Вітаю! Ви звернулися до юридичного бота щодо оскарження постанови за ч. 1 ст. 130 КУпАП.\n\n"
+        "Я допоможу зібрати попередню інформацію, щоб наш юрист зміг з вами зв'язатися.\n\n"
+        "📌 Будь ласка, вкажіть ваше прізвище, ім'я та по батькові."
     )
-    return NAME
+    return FULL_NAME
 
 
-async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['name'] = update.message.text
-    await update.message.reply_text("Вопрос 2/4: Ваш год рождения?")
-    return BIRTH_YEAR
+async def get_full_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Store full name"""
+    context.user_data['full_name'] = update.message.text
+    await update.message.reply_text("📌 Вкажіть вашу дату народження (наприклад: 01.01.1990)")
+    return BIRTH_DATE
 
 
-async def get_birth_year(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    birth_year = update.message.text
+async def get_birth_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Store birth date"""
+    context.user_data['birth_date'] = update.message.text
+    await update.message.reply_text("📌 Коли саме було складено протокол? (наприклад: 15.10.2025)")
+    return PROTOCOL_DATE
+
+
+async def get_protocol_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Store protocol date"""
+    context.user_data['protocol_date'] = update.message.text
     
-    try:
-        year = int(birth_year)
-        if 1900 <= year <= 2024:
-            context.user_data['birth_year'] = birth_year
-        else:
-            await update.message.reply_text("Некорректный год. Введите год от 1900 до 2024:")
-            return BIRTH_YEAR
-    except ValueError:
-        await update.message.reply_text("Введите год числом:")
-        return BIRTH_YEAR
+    # Кнопки да/нет
+    keyboard = [
+        [KeyboardButton("Так"), KeyboardButton("Ні")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     
-    await update.message.reply_text("Вопрос 3/4: Использовали ли вы аппарат? (да/нет)")
-    return DEVICE_USAGE
+    await update.message.reply_text(
+        "📌 Чи було вже судове засідання по вашій справі?",
+        reply_markup=reply_markup
+    )
+    return COURT_HEARING
 
 
-async def get_device_usage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def get_court_hearing(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Store court hearing answer"""
     answer = update.message.text.lower()
     
-    if answer not in ['да', 'нет', 'yes', 'no']:
-        await update.message.reply_text("Ответьте 'да' или 'нет':")
-        return DEVICE_USAGE
+    if answer not in ['так', 'ні', 'да', 'нет', 'yes', 'no']:
+        await update.message.reply_text("Будь ласка, оберіть 'Так' або 'Ні'")
+        return COURT_HEARING
     
-    context.user_data['device_usage'] = update.message.text
+    context.user_data['court_hearing'] = update.message.text
     
-    contact_button = KeyboardButton("📱 Поделиться контактом", request_contact=True)
+    # Request phone
+    contact_button = KeyboardButton("📱 Поділитися контактом", request_contact=True)
     keyboard = ReplyKeyboardMarkup([[contact_button]], resize_keyboard=True, one_time_keyboard=True)
     
-    await update.message.reply_text("Вопрос 4/4: Поделитесь контактом", reply_markup=keyboard)
+    await update.message.reply_text(
+        "📌 Залиште, будь ласка, ваш номер телефону для зв'язку.",
+        reply_markup=keyboard
+    )
     return PHONE
 
 
 async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Store phone and complete survey"""
     user = update.effective_user
     
+    # Get phone
     if update.message.contact:
         phone = update.message.contact.phone_number
     else:
-        phone = "Not shared"
+        phone = "Не надано"
     
+    # Collect all data
     survey_data = {
         'timestamp': datetime.now().isoformat(),
         'user_id': user.id,
-        'username': user.username if user.username else "No username",
+        'username': user.username if user.username else "Немає username",
         'first_name': user.first_name,
         'last_name': user.last_name if user.last_name else "",
-        'name': context.user_data.get('name'),
-        'birth_year': context.user_data.get('birth_year'),
-        'device_usage': context.user_data.get('device_usage'),
+        'full_name': context.user_data.get('full_name'),
+        'birth_date': context.user_data.get('birth_date'),
+        'protocol_date': context.user_data.get('protocol_date'),
+        'court_hearing': context.user_data.get('court_hearing'),
         'phone': phone
     }
     
+    # Save to file
     try:
         try:
             with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
@@ -96,16 +120,35 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error saving: {e}")
     
+    # Send to admin group if configured
+    if ADMIN_GROUP_ID:
+        try:
+            admin_message = (
+                "🔔 <b>Нова заявка</b>\n\n"
+                f"<b>ПІБ:</b> {survey_data['full_name']}\n"
+                f"<b>Дата народження:</b> {survey_data['birth_date']}\n"
+                f"<b>Дата протоколу:</b> {survey_data['protocol_date']}\n"
+                f"<b>Судове засідання:</b> {survey_data['court_hearing']}\n"
+                f"<b>Телефон:</b> {phone}\n\n"
+                f"<b>Telegram:</b> @{survey_data['username']}\n"
+                f"<b>User ID:</b> <code>{survey_data['user_id']}</code>\n"
+                f"<b>Час:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+            )
+            
+            await context.bot.send_message(
+                chat_id=ADMIN_GROUP_ID,
+                text=admin_message,
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"Error sending to admin group: {e}")
+    
+    # User confirmation
     summary = (
-        "✅ Спасибо! Опрос завершен.\n\n"
-        f"📋 Ваши данные:\n"
-        f"• Имя: {survey_data['name']}\n"
-        f"• Год рождения: {survey_data['birth_year']}\n"
-        f"• Использовали аппарат: {survey_data['device_usage']}\n"
-        f"• Telegram: @{survey_data['username']}\n"
-        f"• User ID: {survey_data['user_id']}\n"
-        f"• Телефон: {phone}\n\n"
-        "Для нового опроса: /start"
+        "✅ Дякуємо!\n\n"
+        "Я передам ваші дані юристу. Він зателефонує найближчим часом, щоб уточнити деталі.\n\n"
+        "ℹ️ Ваші дані обробляються лише для надання юридичної допомоги та не передаються третім особам.\n\n"
+        "Для нового звернення використовуйте /start"
     )
     
     await update.message.reply_text(summary, reply_markup=ReplyKeyboardRemove())
@@ -115,12 +158,17 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Опрос отменен. /start для нового", reply_markup=ReplyKeyboardRemove())
+    """Cancel survey"""
+    await update.message.reply_text(
+        "Опитування скасовано. Для нового звернення використовуйте /start",
+        reply_markup=ReplyKeyboardRemove()
+    )
     context.user_data.clear()
     return ConversationHandler.END
 
 
 def main():
+    """Start the bot"""
     TOKEN = "8393177001:AAF9SvllSF3FkTSAVhxl47hEZsvMf9gzHok"
     
     application = Application.builder().token(TOKEN).build()
@@ -128,9 +176,10 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
-            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
-            BIRTH_YEAR: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_birth_year)],
-            DEVICE_USAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_device_usage)],
+            FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_full_name)],
+            BIRTH_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_birth_date)],
+            PROTOCOL_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_protocol_date)],
+            COURT_HEARING: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_court_hearing)],
             PHONE: [MessageHandler(filters.CONTACT | filters.TEXT, get_phone)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
