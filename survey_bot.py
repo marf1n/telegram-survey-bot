@@ -6,16 +6,33 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import logging
 import json
 from datetime import datetime
+import os
+from threading import Thread
+from flask import Flask
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Flask app for health checks
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!", 200
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
+def run_flask():
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
 
 # States
 FULL_NAME, BIRTH_DATE, PROTOCOL_DATE, COURT_HEARING, PHONE = range(5)
 RESULTS_FILE = 'survey_results.json'
 
-# ВАЖНО: Замените на ID вашей группы/канала
-# Чтобы получить ID: добавьте бота в группу, напишите что-то, бот залогирует chat_id
+# Admin group ID
 ADMIN_GROUP_ID = -1003266963357
 
 
@@ -120,7 +137,7 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error saving: {e}")
     
-    # Send to admin group if configured
+    # Send to admin group
     if ADMIN_GROUP_ID:
         try:
             admin_message = (
@@ -170,6 +187,11 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     """Start the bot"""
     TOKEN = "8393177001:AAF9SvllSF3FkTSAVhxl47hEZsvMf9gzHok"
+    
+    # Start Flask in separate thread
+    flask_thread = Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info("Flask server started")
     
     application = Application.builder().token(TOKEN).build()
     
